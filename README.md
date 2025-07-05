@@ -47,7 +47,7 @@ _推荐环境：Windows 10/11 或 Ubuntu 20.04+_
    ```bash
    git clone https://github.com/your-username/AIClassroomMonitor.git
    cd AIClassroomMonitor
-````
+   ```
 
 2. 安装依赖 | Install requirements
 
