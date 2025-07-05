@@ -123,7 +123,6 @@ AIClassroomMonitor/
 欢迎交流智慧教育AI系统设计与落地方案。
 
 Feel free to raise issues or submit PRs.
-For business or academic collaboration, contact: `your.email@domain.com`
 
 ---
 
