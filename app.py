@@ -4,10 +4,13 @@ import time
 import requests
 import numpy as np
 import cv2
+
+from PIL import Image
 import mediapipe as mp
 import streamlit as st
-from PIL import Image
 
+st.write("mediapipe module file:", getattr(mp, "__file__", "NO __file__"))
+st.write("has solutions:", hasattr(mp, "solutions"))
 # -------------------- 基础配置 --------------------
 st.set_page_config(page_title="AI课堂状态监测与智能反馈", layout="wide")
 
