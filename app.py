@@ -16,6 +16,34 @@ st.set_page_config(page_title="AI课堂状态监测与智能反馈", layout="wid
 
 BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"  # 千问兼容 OpenAI 的接口
 MODEL_NAME = "qwen-max"  # 你也可以换成你账号有权限的模型，比如 qwen-turbo / qwen-plus
+@st.cache_resource
+def get_face_cascade():
+    # OpenCV 自带的人脸级联分类器
+    cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+    face_cascade = cv2.CascadeClassifier(cascade_path)
+    return face_cascade
+
+def detect_faces_opencv(frame_rgb: np.ndarray):
+    """
+    输入: RGB ndarray
+    输出: list of (left, top, right, bottom)
+    """
+    gray = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2GRAY)
+    face_cascade = get_face_cascade()
+
+    # 参数可微调：scaleFactor 越小越敏感；minNeighbors 越小越容易检出但误检增多
+    faces = face_cascade.detectMultiScale(
+        gray,
+        scaleFactor=1.1,
+        minNeighbors=5,
+        minSize=(40, 40)
+    )
+
+    boxes = []
+    for (x, y, w, h) in faces:
+        left, top, right, bottom = x, y, x + w, y + h
+        boxes.append((left, top, right, bottom))
+    return boxes
 
 def state_to_color(attention: str) -> str:
     if attention == "专注":
@@ -119,38 +147,32 @@ if frame_rgb is not None:
     h, w = frame_rgb.shape[:2]
     draw_frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR).copy()
 
-    mp_fd = mp.solutions.face_detection
-    with mp_fd.FaceDetection(model_selection=1, min_detection_confidence=0.5) as fd:
-        results = fd.process(frame_rgb)
-        dets = results.detections or []
+    student_status = []
+    draw_frame_bgr = None
 
-        for i, det in enumerate(dets):
-            score = float(det.score[0]) if det.score else 0.0
-            box = det.location_data.relative_bounding_box
+    if frame_rgb is not None:
+        h, w = frame_rgb.shape[:2]
+        draw_frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR).copy()
 
-            left = max(0, int(box.xmin * w))
-            top = max(0, int(box.ymin * h))
-            right = min(w, int((box.xmin + box.width) * w))
-            bottom = min(h, int((box.ymin + box.height) * h))
+        boxes = detect_faces_opencv(frame_rgb)
 
-            # 防止异常框
+        for i, (left, top, right, bottom) in enumerate(boxes):
+            # 防止越界
+            left = max(0, left); top = max(0, top)
+            right = min(w, right); bottom = min(h, bottom)
             if right <= left or bottom <= top:
                 continue
 
             match_name = f"Stu{i+1}"
 
-            # --- 情绪：先做 Demo（可部署、可演示） ---
-            # 你后续如果要接入真实情绪模型，可以在这里替换
+            # 先用 demo 情绪，保证部署稳定
             emotion = "neutral"
-
-            # --- 注意力：用规则（可解释 + 稳定）---
-            # 这里用检测置信度和人脸框大小做简单启发式
+            # 注意力规则：你也可以按需要改
             face_area = (right - left) * (bottom - top)
             area_ratio = face_area / max(1, (w * h))
-
-            if score >= 0.85 and area_ratio >= 0.01:
+            if area_ratio >= 0.015:
                 attention = "专注"
-            elif score >= 0.65:
+            elif area_ratio >= 0.008:
                 attention = "需要关注"
             else:
                 attention = "状态不佳"
@@ -171,7 +193,8 @@ if frame_rgb is not None:
             cv2.putText(draw_frame_bgr, match_name, (left, max(0, top - 10)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-    st.image(draw_frame_bgr, caption="检测结果（人脸已编号）", channels="BGR")
+        st.image(draw_frame_bgr, caption="检测结果（人脸已编号）", channels="BGR")
+
 
 # -------------------- 状态表 --------------------
 st.header("班级学生状态监控（实时）")
