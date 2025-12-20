@@ -3,6 +3,5 @@ opencv-python-headless
 numpy
 Pillow
 requests
-torch
-torchvision
-transformers
+mediapipe
+
