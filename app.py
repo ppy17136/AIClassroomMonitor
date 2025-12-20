@@ -195,8 +195,52 @@ if frame_rgb is not None:
         bottom= min(h, bottom + py)
 
         match_name = f"Stu{i+1}"
+        #emotion = "neutral"
+        #attention = "专注"
+        
+        
+        # --- 取人脸ROI（RGB） ---
+        face_roi = frame_rgb[top:bottom, left:right]
+        if face_roi.size == 0:
+            continue
+
+        # 1) 清晰度：拉普拉斯方差（越大越清晰）
+        gray_roi = cv2.cvtColor(face_roi, cv2.COLOR_RGB2GRAY)
+        sharp = cv2.Laplacian(gray_roi, cv2.CV_64F).var()
+
+        # 2) 亮度：平均灰度（太暗/过曝都不太好）
+        brightness = float(gray_roi.mean())
+
+        # 3) 朝向粗判：用人脸框“在整张图中的位置”近似（偏离中心越多，可能没正对）
+        cx = (left + right) / 2.0
+        center_offset = abs(cx - (w / 2.0)) / (w / 2.0)  # 0~1
+
+        # 4) 人脸大小：越大越可信
+        area_ratio = ((right-left) * (bottom-top)) / max(1, w*h)
+
+        # --- 计算一个简单分数（你可调权重）---
+        score = 0.0
+        score += min(sharp / 200.0, 1.0) * 0.45         # 清晰度
+        score += (1.0 - min(abs(brightness - 130)/130, 1.0)) * 0.25  # 亮度接近中间更好
+        score += (1.0 - min(center_offset, 1.0)) * 0.15 # 越靠中越好（粗略）
+        score += min(area_ratio / 0.03, 1.0) * 0.15     # 人脸大小
+
+        # --- 分档 ---
+        if score >= 0.70:
+            attention = "专注"
+        elif score >= 0.45:
+            attention = "需要关注"
+        else:
+            attention = "状态不佳"
+
+        # 情绪仍然先用 demo（不引入重模型）
         emotion = "neutral"
-        attention = "专注"
+        
+        
+        
+        
+        
+        
         color = state_to_color(attention)
 
         student_status.append({
