@@ -12,34 +12,82 @@ st.set_page_config(page_title="AI课堂状态监测与智能反馈", layout="wid
 
 BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"  # 千问兼容 OpenAI 的接口
 MODEL_NAME = "qwen-max"  # 你也可以换成你账号有权限的模型，比如 qwen-turbo / qwen-plus
+
 @st.cache_resource
-def get_face_cascade():
-    # OpenCV 自带的人脸级联分类器
-    cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-    face_cascade = cv2.CascadeClassifier(cascade_path)
-    return face_cascade
+def get_face_cascades():
+    base = cv2.data.haarcascades
+    c1 = cv2.CascadeClassifier(base + "haarcascade_frontalface_default.xml")
+    c2 = cv2.CascadeClassifier(base + "haarcascade_frontalface_alt2.xml")
+    return [c1, c2]
+
+def iou(a, b):
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    inter_x1, inter_y1 = max(ax1, bx1), max(ay1, by1)
+    inter_x2, inter_y2 = min(ax2, bx2), min(ay2, by2)
+    iw, ih = max(0, inter_x2 - inter_x1), max(0, inter_y2 - inter_y1)
+    inter = iw * ih
+    area_a = max(0, ax2 - ax1) * max(0, ay2 - ay1)
+    area_b = max(0, bx2 - bx1) * max(0, by2 - by1)
+    union = area_a + area_b - inter + 1e-9
+    return inter / union
+
+def nms(boxes, iou_thr=0.35):
+    # boxes: [(x1,y1,x2,y2), ...]
+    boxes = sorted(boxes, key=lambda b: (b[2]-b[0])*(b[3]-b[1]), reverse=True)
+    keep = []
+    for b in boxes:
+        if all(iou(b, k) < iou_thr for k in keep):
+            keep.append(b)
+    return keep
 
 def detect_faces_opencv(frame_rgb: np.ndarray):
     """
     输入: RGB ndarray
     输出: list of (left, top, right, bottom)
     """
+    h, w = frame_rgb.shape[:2]
     gray = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2GRAY)
-    face_cascade = get_face_cascade()
+    gray = cv2.equalizeHist(gray)  # 提升对比度，减少漏检
 
-    # 参数可微调：scaleFactor 越小越敏感；minNeighbors 越小越容易检出但误检增多
-    faces = face_cascade.detectMultiScale(
-        gray,
-        scaleFactor=1.1,
-        minNeighbors=6,
-        minSize=(60, 60)
-    )
+    cascades = get_face_cascades()
 
-    boxes = []
-    for (x, y, w, h) in faces:
-        left, top, right, bottom = x, y, x + w, y + h
-        boxes.append((left, top, right, bottom))
+    def run(scaleFactor, minNeighbors, minSize):
+        boxes = []
+        for cas in cascades:
+            faces = cas.detectMultiScale(
+                gray,
+                scaleFactor=scaleFactor,
+                minNeighbors=minNeighbors,
+                minSize=(minSize, minSize)
+            )
+            for (x, y, fw, fh) in faces:
+                x1, y1, x2, y2 = x, y, x + fw, y + fh
+                # 过滤：比例异常、太小、太大（减少误检“大框”）
+                ar = fw / max(1, fh)
+                area_ratio = (fw * fh) / max(1, w * h)
+                if ar < 0.65 or ar > 1.6:
+                    continue
+                if area_ratio < 0.002:   # 太小（很多是噪声）
+                    continue
+                if area_ratio > 0.20:    # 太大（容易把一排人当脸）
+                    continue
+                boxes.append((x1, y1, x2, y2))
+        return nms(boxes, iou_thr=0.35)
+
+    # 第一轮：偏“稳”，减少误检
+    boxes = run(scaleFactor=1.1, minNeighbors=7, minSize=60)
+
+    # 回退：如果一个都没检出，放宽条件以减少漏检
+    if not boxes:
+        boxes = run(scaleFactor=1.08, minNeighbors=5, minSize=40)
+
+    # 再回退：仍然没有，就再放宽一点
+    if not boxes:
+        boxes = run(scaleFactor=1.05, minNeighbors=4, minSize=30)
+
     return boxes
+
 
 def state_to_color(attention: str) -> str:
     if attention == "专注":
@@ -146,7 +194,7 @@ if frame_rgb is not None:
 
     boxes = detect_faces_opencv(frame_rgb)  # (left, top, right, bottom)
 
-    PAD = 0.12  # 12% padding，让框更贴合/更好看
+    PAD = 0.05  # 12% padding，让框更贴合/更好看
     for i, (left, top, right, bottom) in enumerate(boxes):
         bw, bh = right - left, bottom - top
         px, py = int(bw * PAD), int(bh * PAD)
