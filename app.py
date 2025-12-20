@@ -35,8 +35,8 @@ def detect_faces_opencv(frame_rgb: np.ndarray):
     faces = face_cascade.detectMultiScale(
         gray,
         scaleFactor=1.1,
-        minNeighbors=5,
-        minSize=(40, 40)
+        minNeighbors=6,
+        minSize=(60, 60)
     )
 
     boxes = []
@@ -135,89 +135,69 @@ if use_camera:
         st.error("摄像头采集失败（云端环境通常不可用，请改用上传照片）。")
 
 elif uploaded_image is not None:
-    img = Image.open(uploaded_image).convert("RGB")
+    img = ImageOps.exif_transpose(Image.open(uploaded_image)).convert("RGB")
     frame_rgb = np.array(img)
-    st.image(frame_rgb, caption="上传图片（RGB）")
+    st.image(frame_rgb, caption="上传图片（用于检测的原始RGB）", channels="RGB")    
+    
 
 # -------------------- 人脸检测（MediaPipe）--------------------
 student_status = []
-draw_frame_bgr = None
+draw_frame_rgb = None
 
 if frame_rgb is not None:
     h, w = frame_rgb.shape[:2]
-    draw_frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR).copy()
+    draw_frame_rgb = frame_rgb.copy()
 
-    student_status = []
-    draw_frame_bgr = None
+    boxes = detect_faces_opencv(frame_rgb)  # (left, top, right, bottom)
 
-    if frame_rgb is not None:
-        h, w = frame_rgb.shape[:2]
-        draw_frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR).copy()
+    PAD = 0.12  # 12% padding，让框更贴合/更好看
+    for i, (left, top, right, bottom) in enumerate(boxes):
+        bw, bh = right - left, bottom - top
+        px, py = int(bw * PAD), int(bh * PAD)
+        left  = max(0, left - px)
+        top   = max(0, top - py)
+        right = min(w, right + px)
+        bottom= min(h, bottom + py)
 
-        boxes = detect_faces_opencv(frame_rgb)
+        match_name = f"Stu{i+1}"
+        emotion = "neutral"
+        attention = "专注"
+        color = state_to_color(attention)
 
-        for i, (left, top, right, bottom) in enumerate(boxes):
-            # 防止越界
-            left = max(0, left); top = max(0, top)
-            right = min(w, right); bottom = min(h, bottom)
-            if right <= left or bottom <= top:
-                continue
+        student_status.append({
+            "name": match_name, "emotion": emotion,
+            "attention": attention, "color": color, "history": []
+        })
 
-            match_name = f"Stu{i+1}"
+        # 在RGB上画红框
+        cv2.rectangle(draw_frame_rgb, (left, top), (right, bottom), (255, 0, 0), 2)
+        cv2.putText(draw_frame_rgb, match_name, (left, max(0, top-10)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2)
 
-            # 先用 demo 情绪，保证部署稳定
-            emotion = "neutral"
-            # 注意力规则：你也可以按需要改
-            face_area = (right - left) * (bottom - top)
-            area_ratio = face_area / max(1, (w * h))
-            if area_ratio >= 0.015:
-                attention = "专注"
-            elif area_ratio >= 0.008:
-                attention = "需要关注"
-            else:
-                attention = "状态不佳"
-
-            color = state_to_color(attention)
-
-            student_status.append({
-                "name": match_name,
-                "face_box": (top, right, bottom, left),
-                "emotion": emotion,
-                "attention": attention,
-                "color": color,
-                "history": []
-            })
-
-            # 画框与编号
-            cv2.rectangle(draw_frame_bgr, (left, top), (right, bottom), (0, 0, 255), 2)
-            cv2.putText(draw_frame_bgr, match_name, (left, max(0, top - 10)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-
-        st.image(draw_frame_bgr, caption="检测结果（人脸已编号）", channels="BGR")
-
+    st.image(draw_frame_rgb, caption="检测结果（RGB画框）", channels="RGB")
+        
 
 # -------------------- 状态表 --------------------
 st.header("班级学生状态监控（实时）")
-
 if not student_status:
     st.info("未检测到人脸：请上传更清晰、人物正面较多的班级照片。")
     st.stop()
 
-cols = st.columns(len(student_status))
+cols = st.columns(len(student_status) or 1)
 for i, s in enumerate(student_status):
     with cols[i]:
-        st.markdown(
-            f"""
-            <div style="background:{s['color']}; padding:10px; border-radius:12px; text-align:center;">
-                <b>{s['name']}</b><br>
-                情绪：{s['emotion']}<br>
-                专注度：{s['attention']}
-            </div>
-            """,
-            unsafe_allow_html=True
+        html = (
+            f'<div style="background:{s["color"]}; padding:10px; border-radius:12px; text-align:center;">'
+            f'<b>{s["name"]}</b><br>'
+            f'情绪：{s["emotion"]}<br>'
+            f'专注度：{s["attention"]}'
+            f'</div>'
         )
+        st.markdown(html, unsafe_allow_html=True)
         if s["attention"] == "状态不佳":
             st.warning(f"{s['name']} 状态不佳，已自动提醒！")
+
+
 
 # -------------------- AI 个性化反馈（只生成一次并复用，避免烧 API）--------------------
 st.header("AI个性化反馈/智能分析建议")
