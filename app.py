@@ -4,13 +4,9 @@ import time
 import requests
 import numpy as np
 import cv2
-
-from PIL import Image
-import mediapipe as mp
 import streamlit as st
+from PIL import Image, ImageOps
 
-st.write("mediapipe module file:", getattr(mp, "__file__", "NO __file__"))
-st.write("has solutions:", hasattr(mp, "solutions"))
 # -------------------- 基础配置 --------------------
 st.set_page_config(page_title="AI课堂状态监测与智能反馈", layout="wide")
 
@@ -140,7 +136,7 @@ elif uploaded_image is not None:
     st.image(frame_rgb, caption="上传图片（用于检测的原始RGB）", channels="RGB")    
     
 
-# -------------------- 人脸检测（MediaPipe）--------------------
+# -------------------- 人脸检测（OpenCV Haar Cascade）--------------------
 student_status = []
 draw_frame_rgb = None
 
