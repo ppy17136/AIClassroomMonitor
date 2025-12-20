@@ -276,15 +276,21 @@ if frame_rgb is not None:
 
         # 画框与标注
         cv2.rectangle(draw_frame_rgb, (left, top), (right, bottom), (255, 0, 0), 2)
+
+        att_map = {"专注": "FOCUS", "需要关注": "WATCH", "状态不佳": "ALERT"}
+        att_show = att_map.get(attention, "UNK")
+
         cv2.putText(
             draw_frame_rgb,
-            f"{match_name} {attention}",
+            f"{match_name} {att_show}",
             (left, max(0, top - 10)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
             (255, 255, 255),
             2
         )
+
+
 
     st.image(draw_frame_rgb, caption="检测结果（RGB画框）", channels="RGB")
 
