@@ -1,9 +1,8 @@
 streamlit
-opencv-python
+opencv-python-headless
 numpy
-face_recognition
+Pillow
+requests
 torch
 torchvision
 transformers
-Pillow
-requests
